@@ -4,6 +4,8 @@ Main bot entry point.
 import asyncio
 import logging
 import os
+from os import getenv
+
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
@@ -23,7 +25,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Bot configuration
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = getenv('TELEGRAM_BOT_TOKEN')
+
 if not TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not found in .env file")
 
