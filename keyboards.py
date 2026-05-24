@@ -23,6 +23,7 @@ def get_student_menu_keyboard():
         keyboard=[
             [KeyboardButton(text=BUTTONS["book_lesson"])],
             [KeyboardButton(text=BUTTONS["my_lessons"])],
+            [KeyboardButton(text=BUTTONS["info"])],
             [KeyboardButton(text="/help")]
         ],
         resize_keyboard=True
@@ -42,14 +43,26 @@ def get_tutor_menu_keyboard():
     return keyboard
 
 
-def get_skip_keyboard():
-    """Keyboard with skip option."""
+def get_skip_cancel_keyboard():
+    """Keyboard with skip and cancel options during booking."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BUTTONS["skip"])],
             [KeyboardButton(text=BUTTONS["cancel"])]
         ],
         resize_keyboard=True
+    )
+    return keyboard
+
+
+def get_booking_confirmation_keyboard():
+    """Keyboard for booking confirmation."""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BUTTONS["confirm"], callback_data="confirm_booking")],
+            [InlineKeyboardButton(text=BUTTONS["change"], callback_data="change_booking")],
+            [InlineKeyboardButton(text=BUTTONS["cancel_booking"], callback_data="cancel_booking")]
+        ]
     )
     return keyboard
 
@@ -66,10 +79,10 @@ def get_lessons_inline_keyboard(lessons: list, callback_prefix: str = "lesson"):
 
 
 def get_lesson_actions_keyboard(lesson_id: int):
-    """Keyboard for lesson actions (student or tutor)."""
+    """Keyboard for lesson actions (student)."""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BUTTONS["delete"], callback_data=f"delete_{lesson_id}")],
+            [InlineKeyboardButton(text=BUTTONS["cancel_lesson"], callback_data=f"cancel_student_{lesson_id}")],
             [InlineKeyboardButton(text=BUTTONS["back"], callback_data="back_to_menu")]
         ]
     )

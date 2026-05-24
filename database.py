@@ -93,13 +93,38 @@ def get_user_name(telegram_id: int) -> str:
 
 # ==================== LESSON FUNCTIONS ====================
 
+def is_slot_available(subject: str, date: str, time: str) -> bool:
+    """
+    Check if a lesson slot is available.
+    A slot is busy only if there is an existing lesson with status = 'planned'.
+    Cancelled lessons do not block the slot.
+    Subject comparison is case-insensitive.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Normalize subject for case-insensitive comparison
+    subject_normalized = subject.strip().lower()
+    
+    cursor.execute(
+        """SELECT COUNT(*) FROM lessons 
+           WHERE LOWER(subject) = ? AND lesson_date = ? AND lesson_time = ? AND status = 'planned'""",
+        (subject_normalized, date, time)
+    )
+    result = cursor.fetchone()
+    conn.close()
+    
+    # If count is 0, slot is available; if count > 0, slot is busy
+    return result[0] == 0
+
+
 def create_lesson(student_id: int, subject: str, date: str, time: str, comment: str = None) -> int:
     """Create new lesson. Returns lesson ID."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        """INSERT INTO lessons (student_id, subject, lesson_date, lesson_time, comment)
-           VALUES (?, ?, ?, ?, ?)""",
+        """INSERT INTO lessons (student_id, subject, lesson_date, lesson_time, comment, status)
+           VALUES (?, ?, ?, ?, ?, 'planned')""",
         (student_id, subject, date, time, comment)
     )
     lesson_id = cursor.lastrowid
@@ -164,10 +189,6 @@ def update_lesson_status(lesson_id: int, status: str) -> None:
     conn.close()
 
 
-def delete_lesson(lesson_id: int) -> None:
-    """Delete lesson."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
-    conn.commit()
-    conn.close()
+def cancel_lesson(lesson_id: int) -> None:
+    """Cancel lesson by updating status to 'cancelled'."""
+    update_lesson_status(lesson_id, 'cancelled')

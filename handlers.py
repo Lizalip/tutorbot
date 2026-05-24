@@ -12,12 +12,12 @@ from config import MESSAGES, BUTTONS, STATUS_NAMES
 from database import (
     user_exists, create_user, get_user_role, get_user_name,
     create_lesson, get_student_lessons, get_all_lesson_requests,
-    get_lesson_by_id, update_lesson_status, delete_lesson
+    get_lesson_by_id, update_lesson_status, cancel_lesson, is_slot_available
 )
 from keyboards import (
     get_role_keyboard, get_student_menu_keyboard, get_tutor_menu_keyboard,
-    get_skip_keyboard, get_lessons_inline_keyboard, get_lesson_actions_keyboard,
-    get_tutor_lesson_actions_keyboard
+    get_skip_cancel_keyboard, get_lessons_inline_keyboard, get_lesson_actions_keyboard,
+    get_tutor_lesson_actions_keyboard, get_booking_confirmation_keyboard
 )
 
 router = Router()
@@ -33,9 +33,32 @@ class UserStates(StatesGroup):
     booking_date = State()
     booking_time = State()
     booking_comment = State()
+    booking_confirm = State()
 
 
-# ==================== START & HELP ====================
+# ==================== HELPER FUNCTIONS ====================
+
+async def cancel_current_action(message: types.Message, state: FSMContext) -> None:
+    """
+    Cancel the current unfinished FSM scenario.
+    Clear state and return user to appropriate menu.
+    """
+    await state.clear()
+    
+    if not user_exists(message.from_user.id):
+        # User not registered yet
+        await message.answer(MESSAGES["welcome"], reply_markup=get_role_keyboard())
+        await state.set_state(UserStates.waiting_for_role)
+    else:
+        # User is registered, show appropriate menu
+        role = get_user_role(message.from_user.id)
+        if role == "tutor":
+            await message.answer(MESSAGES["main_menu_tutor"], reply_markup=get_tutor_menu_keyboard())
+        else:
+            await message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
+
+
+# ==================== START & HELP & INFO ====================
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -59,6 +82,12 @@ async def cmd_help(message: types.Message):
     await message.answer(MESSAGES["help"])
 
 
+@router.message(Command("info"))
+async def cmd_info(message: types.Message):
+    """Handle /info command."""
+    await message.answer(MESSAGES["info"])
+
+
 @router.message(Command("menu"))
 async def cmd_menu(message: types.Message):
     """Handle /menu command."""
@@ -71,6 +100,27 @@ async def cmd_menu(message: types.Message):
         await message.answer(MESSAGES["main_menu_tutor"], reply_markup=get_tutor_menu_keyboard())
     else:
         await message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: types.Message, state: FSMContext):
+    """Handle /cancel command - cancel unfinished scenario."""
+    current_state = await state.get_state()
+    
+    if current_state:
+        # There is an active FSM state
+        await message.answer(MESSAGES["current_action_cancelled"])
+        await cancel_current_action(message, state)
+    else:
+        # No active FSM state
+        await message.answer(MESSAGES["no_active_action"])
+        
+        if user_exists(message.from_user.id):
+            role = get_user_role(message.from_user.id)
+            if role == "tutor":
+                await message.answer(MESSAGES["main_menu_tutor"], reply_markup=get_tutor_menu_keyboard())
+            else:
+                await message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
 
 
 # ==================== ROLE SELECTION & NAME ====================
@@ -131,21 +181,29 @@ async def book_lesson_start(message: types.Message, state: FSMContext):
         await message.answer("❌ Только студенты могут записаться на урок")
         return
     
-    await message.answer(MESSAGES["ask_subject"])
+    await message.answer(MESSAGES["ask_subject"], reply_markup=get_skip_cancel_keyboard())
     await state.set_state(UserStates.booking_subject)
 
 
 @router.message(UserStates.booking_subject)
 async def booking_subject(message: types.Message, state: FSMContext):
     """Process subject."""
+    if message.text == BUTTONS["cancel"]:
+        await cancel_current_action(message, state)
+        return
+    
     await state.update_data(subject=message.text)
-    await message.answer(MESSAGES["ask_date"])
+    await message.answer(MESSAGES["ask_date"], reply_markup=get_skip_cancel_keyboard())
     await state.set_state(UserStates.booking_date)
 
 
 @router.message(UserStates.booking_date)
 async def booking_date(message: types.Message, state: FSMContext):
     """Process date."""
+    if message.text == BUTTONS["cancel"]:
+        await cancel_current_action(message, state)
+        return
+    
     date_text = message.text.strip()
     
     # Validate date format DD.MM.YYYY
@@ -154,13 +212,17 @@ async def booking_date(message: types.Message, state: FSMContext):
         return
     
     await state.update_data(date=date_text)
-    await message.answer(MESSAGES["ask_time"])
+    await message.answer(MESSAGES["ask_time"], reply_markup=get_skip_cancel_keyboard())
     await state.set_state(UserStates.booking_time)
 
 
 @router.message(UserStates.booking_time)
 async def booking_time(message: types.Message, state: FSMContext):
     """Process time."""
+    if message.text == BUTTONS["cancel"]:
+        await cancel_current_action(message, state)
+        return
+    
     time_text = message.text.strip()
     
     # Validate time format HH:MM
@@ -168,30 +230,74 @@ async def booking_time(message: types.Message, state: FSMContext):
         await message.answer("⚠️ Неверный формат времени. Используйте ЧЧ:МММ")
         return
     
+    # Check slot availability
+    data = await state.get_data()
+    subject = data["subject"]
+    date = data["date"]
+    
+    if not is_slot_available(subject, date, time_text):
+        # Slot is busy - return to date input
+        await message.answer(MESSAGES["slot_busy"])
+        await message.answer(MESSAGES["ask_date"], reply_markup=get_skip_cancel_keyboard())
+        await state.set_state(UserStates.booking_date)
+        return
+    
     await state.update_data(time=time_text)
-    await message.answer(MESSAGES["ask_comment"], reply_markup=get_skip_keyboard())
+    await message.answer(MESSAGES["ask_comment"], reply_markup=get_skip_cancel_keyboard())
     await state.set_state(UserStates.booking_comment)
 
 
 @router.message(UserStates.booking_comment)
 async def booking_comment(message: types.Message, state: FSMContext):
-    """Process comment and save lesson."""
+    """Process comment and show confirmation."""
+    if message.text == BUTTONS["cancel"]:
+        await cancel_current_action(message, state)
+        return
+    
     data = await state.get_data()
     
     # Handle skip
     comment = None if message.text == BUTTONS["skip"] else message.text
     
-    # Save to database
+    # Save comment to state
+    await state.update_data(comment=comment)
+    
+    # Show confirmation screen
+    comment_display = comment if comment else "(нет)"
+    confirmation_text = MESSAGES["booking_confirm"].format(
+        data["subject"],
+        data["date"],
+        data["time"],
+        comment_display
+    )
+    
+    await message.answer(confirmation_text, reply_markup=get_booking_confirmation_keyboard())
+    await state.set_state(UserStates.booking_confirm)
+
+
+@router.callback_query(F.data == "confirm_booking", UserStates.booking_confirm)
+async def confirm_booking(callback: types.CallbackQuery, state: FSMContext):
+    """Confirm booking and save to database."""
+    data = await state.get_data()
+    
+    # Check slot availability one more time before saving
+    if not is_slot_available(data["subject"], data["date"], data["time"]):
+        await callback.answer(MESSAGES["slot_busy"])
+        await callback.message.edit_text(MESSAGES["ask_date"], reply_markup=get_skip_cancel_keyboard())
+        await state.set_state(UserStates.booking_date)
+        return
+    
+    # Save lesson to database
     create_lesson(
-        student_id=message.from_user.id,
+        student_id=callback.from_user.id,
         subject=data["subject"],
         date=data["date"],
         time=data["time"],
-        comment=comment
+        comment=data["comment"]
     )
     
-    comment_display = comment if comment else "(нет)"
-    await message.answer(
+    comment_display = data["comment"] if data["comment"] else "(нет)"
+    await callback.message.edit_text(
         MESSAGES["lesson_created"].format(
             data["subject"],
             data["date"],
@@ -200,8 +306,24 @@ async def booking_comment(message: types.Message, state: FSMContext):
         )
     )
     
-    await message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
+    await callback.message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
     await state.clear()
+
+
+@router.callback_query(F.data == "change_booking", UserStates.booking_confirm)
+async def change_booking(callback: types.CallbackQuery, state: FSMContext):
+    """Return to subject input to change booking data."""
+    await state.clear()
+    await callback.message.edit_text(MESSAGES["ask_subject"], reply_markup=get_skip_cancel_keyboard())
+    await state.set_state(UserStates.booking_subject)
+
+
+@router.callback_query(F.data == "cancel_booking", UserStates.booking_confirm)
+async def cancel_booking(callback: types.CallbackQuery, state: FSMContext):
+    """Cancel booking without saving."""
+    await state.clear()
+    await callback.message.edit_text(MESSAGES["booking_cancelled"])
+    await callback.message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
 
 
 # ==================== STUDENT: VIEW LESSONS ====================
@@ -243,7 +365,7 @@ async def view_lesson_details(callback: types.CallbackQuery):
     lesson = get_lesson_by_id(lesson_id)
     
     if not lesson:
-        await callback.answer("❌ Урок не найден")
+        await callback.answer("❌ Урок не н��йден")
         return
     
     status_name = STATUS_NAMES.get(lesson[6], lesson[6])
@@ -258,14 +380,22 @@ async def view_lesson_details(callback: types.CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("delete_"))
-async def delete_lesson_callback(callback: types.CallbackQuery):
-    """Delete lesson."""
-    lesson_id = int(callback.data.split("_")[1])
-    delete_lesson(lesson_id)
+@router.callback_query(F.data.startswith("cancel_student_"))
+async def cancel_student_lesson(callback: types.CallbackQuery):
+    """Cancel student's lesson by changing status to cancelled."""
+    lesson_id = int(callback.data.split("_")[2])
+    cancel_lesson(lesson_id)
     
-    await callback.answer(MESSAGES["lesson_cancelled"])
-    await callback.message.edit_text("✅ Урок удален")
+    await callback.answer(MESSAGES["lesson_cancelled_status"])
+    await callback.message.edit_text("✅ Запись отменена")
+
+
+# ==================== INFO BUTTON ====================
+
+@router.message(F.text == BUTTONS["info"])
+async def info_button(message: types.Message):
+    """Handle info button."""
+    await message.answer(MESSAGES["info"])
 
 
 # ==================== TUTOR: VIEW REQUESTS ====================
