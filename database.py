@@ -47,6 +47,21 @@ def get_connection():
     return sqlite3.connect(DATABASE_FILE)
 
 
+# ==================== HELPER: DEBUG TEST QUERY ====================
+
+def debug_lessons_query():
+    """
+    Debug helper for testing. Shows all lessons with brackets around values.
+    To inspect values and whitespace:
+    
+    SELECT id, '[' || subject || ']', '[' || lesson_date || ']', '[' || lesson_time || ']', '[' || status || ']'
+    FROM lessons;
+    
+    Do not expose this to bot users. For developer testing only.
+    """
+    pass
+
+
 # ==================== USER FUNCTIONS ====================
 
 def user_exists(telegram_id: int) -> bool:
@@ -96,20 +111,39 @@ def get_user_name(telegram_id: int) -> str:
 def is_slot_available(subject: str, date: str, time: str) -> bool:
     """
     Check if a lesson slot is available.
-    A slot is busy only if there is an existing lesson with status = 'planned'.
+    
+    A slot is busy only if there is an existing lesson with:
+    - subject matches (case-insensitive, whitespace-trimmed)
+    - lesson_date matches (whitespace-trimmed)
+    - lesson_time matches (whitespace-trimmed)
+    - status = 'planned'
+    
     Cancelled lessons do not block the slot.
-    Subject comparison is case-insensitive.
+    
+    Args:
+        subject: Subject (will be normalized: strip + lower)
+        date: Date (will be trimmed)
+        time: Time (will be trimmed)
+    
+    Returns:
+        True if slot is available (no conflicts), False if busy.
     """
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Normalize subject for case-insensitive comparison
+    # Normalize input parameters
     subject_normalized = subject.strip().lower()
+    date_normalized = date.strip()
+    time_normalized = time.strip()
     
+    # Query with LOWER() and TRIM() for database-side normalization
     cursor.execute(
         """SELECT COUNT(*) FROM lessons 
-           WHERE LOWER(subject) = ? AND lesson_date = ? AND lesson_time = ? AND status = 'planned'""",
-        (subject_normalized, date, time)
+           WHERE LOWER(TRIM(subject)) = ? 
+           AND TRIM(lesson_date) = ? 
+           AND TRIM(lesson_time) = ? 
+           AND status = 'planned'""",
+        (subject_normalized, date_normalized, time_normalized)
     )
     result = cursor.fetchone()
     conn.close()

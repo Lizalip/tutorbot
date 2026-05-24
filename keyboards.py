@@ -43,8 +43,19 @@ def get_tutor_menu_keyboard():
     return keyboard
 
 
+def get_cancel_keyboard():
+    """Keyboard with only cancel option (for subject, date, time)."""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BUTTONS["cancel"])]
+        ],
+        resize_keyboard=True
+    )
+    return keyboard
+
+
 def get_skip_cancel_keyboard():
-    """Keyboard with skip and cancel options during booking."""
+    """Keyboard with skip and cancel options (for comment step)."""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BUTTONS["skip"])],

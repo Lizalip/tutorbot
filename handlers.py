@@ -16,8 +16,9 @@ from database import (
 )
 from keyboards import (
     get_role_keyboard, get_student_menu_keyboard, get_tutor_menu_keyboard,
-    get_skip_cancel_keyboard, get_lessons_inline_keyboard, get_lesson_actions_keyboard,
-    get_tutor_lesson_actions_keyboard, get_booking_confirmation_keyboard
+    get_cancel_keyboard, get_skip_cancel_keyboard, get_lessons_inline_keyboard,
+    get_lesson_actions_keyboard, get_tutor_lesson_actions_keyboard,
+    get_booking_confirmation_keyboard
 )
 
 router = Router()
@@ -181,7 +182,7 @@ async def book_lesson_start(message: types.Message, state: FSMContext):
         await message.answer("❌ Только студенты могут записаться на урок")
         return
     
-    await message.answer(MESSAGES["ask_subject"], reply_markup=get_skip_cancel_keyboard())
+    await message.answer(MESSAGES["ask_subject"], reply_markup=get_cancel_keyboard())
     await state.set_state(UserStates.booking_subject)
 
 
@@ -192,8 +193,14 @@ async def booking_subject(message: types.Message, state: FSMContext):
         await cancel_current_action(message, state)
         return
     
-    await state.update_data(subject=message.text)
-    await message.answer(MESSAGES["ask_date"], reply_markup=get_skip_cancel_keyboard())
+    # Normalize subject: strip whitespace
+    subject = message.text.strip()
+    if not subject:
+        await message.answer(MESSAGES["invalid_input"])
+        return
+    
+    await state.update_data(subject=subject)
+    await message.answer(MESSAGES["ask_date"], reply_markup=get_cancel_keyboard())
     await state.set_state(UserStates.booking_date)
 
 
@@ -204,30 +211,32 @@ async def booking_date(message: types.Message, state: FSMContext):
         await cancel_current_action(message, state)
         return
     
+    # Normalize date: strip whitespace
     date_text = message.text.strip()
     
     # Validate date format DD.MM.YYYY
     if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", date_text):
-        await message.answer("⚠️ Неверный формат даты. Используйте ДД.МММ.ГГГГ")
+        await message.answer(MESSAGES["invalid_date_format"])
         return
     
     await state.update_data(date=date_text)
-    await message.answer(MESSAGES["ask_time"], reply_markup=get_skip_cancel_keyboard())
+    await message.answer(MESSAGES["ask_time"], reply_markup=get_cancel_keyboard())
     await state.set_state(UserStates.booking_time)
 
 
 @router.message(UserStates.booking_time)
 async def booking_time(message: types.Message, state: FSMContext):
-    """Process time."""
+    """Process time and check slot availability."""
     if message.text == BUTTONS["cancel"]:
         await cancel_current_action(message, state)
         return
     
+    # Normalize time: strip whitespace
     time_text = message.text.strip()
     
     # Validate time format HH:MM
     if not re.match(r"^\d{2}:\d{2}$", time_text):
-        await message.answer("⚠️ Неверный формат времени. Используйте ЧЧ:МММ")
+        await message.answer(MESSAGES["invalid_time_format"])
         return
     
     # Check slot availability
@@ -238,7 +247,7 @@ async def booking_time(message: types.Message, state: FSMContext):
     if not is_slot_available(subject, date, time_text):
         # Slot is busy - return to date input
         await message.answer(MESSAGES["slot_busy"])
-        await message.answer(MESSAGES["ask_date"], reply_markup=get_skip_cancel_keyboard())
+        await message.answer(MESSAGES["ask_date"], reply_markup=get_cancel_keyboard())
         await state.set_state(UserStates.booking_date)
         return
     
@@ -282,8 +291,9 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext):
     
     # Check slot availability one more time before saving
     if not is_slot_available(data["subject"], data["date"], data["time"]):
-        await callback.answer(MESSAGES["slot_busy"])
-        await callback.message.edit_text(MESSAGES["ask_date"], reply_markup=get_skip_cancel_keyboard())
+        # Slot became busy - show error and return to date input
+        await callback.message.edit_text(MESSAGES["slot_busy"])
+        await callback.message.answer(MESSAGES["ask_date"], reply_markup=get_cancel_keyboard())
         await state.set_state(UserStates.booking_date)
         return
     
@@ -297,15 +307,14 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext):
     )
     
     comment_display = data["comment"] if data["comment"] else "(нет)"
-    await callback.message.edit_text(
-        MESSAGES["lesson_created"].format(
-            data["subject"],
-            data["date"],
-            data["time"],
-            comment_display
-        )
+    success_text = MESSAGES["lesson_created"].format(
+        data["subject"],
+        data["date"],
+        data["time"],
+        comment_display
     )
     
+    await callback.message.edit_text(success_text)
     await callback.message.answer(MESSAGES["main_menu_student"], reply_markup=get_student_menu_keyboard())
     await state.clear()
 
@@ -313,8 +322,9 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "change_booking", UserStates.booking_confirm)
 async def change_booking(callback: types.CallbackQuery, state: FSMContext):
     """Return to subject input to change booking data."""
+    await callback.message.edit_text("✏️ Редактирование запроса...")
     await state.clear()
-    await callback.message.edit_text(MESSAGES["ask_subject"], reply_markup=get_skip_cancel_keyboard())
+    await callback.message.answer(MESSAGES["ask_subject"], reply_markup=get_cancel_keyboard())
     await state.set_state(UserStates.booking_subject)
 
 
@@ -365,7 +375,7 @@ async def view_lesson_details(callback: types.CallbackQuery):
     lesson = get_lesson_by_id(lesson_id)
     
     if not lesson:
-        await callback.answer("❌ Урок не н��йден")
+        await callback.answer("❌ Урок не найден")
         return
     
     status_name = STATUS_NAMES.get(lesson[6], lesson[6])
