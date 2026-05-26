@@ -108,50 +108,47 @@ def get_user_name(telegram_id: int) -> str:
 
 # ==================== LESSON FUNCTIONS ====================
 
+
 def is_slot_available(subject: str, date: str, time: str) -> bool:
     """
     Check if a lesson slot is available.
-    
+
     A slot is busy only if there is an existing lesson with:
-    - subject matches (case-insensitive, whitespace-trimmed)
-    - lesson_date matches (whitespace-trimmed)
-    - lesson_time matches (whitespace-trimmed)
+    - same subject
+    - same date
+    - same time
     - status = 'planned'
-    
+
     Cancelled lessons do not block the slot.
-    
-    Args:
-        subject: Subject (will be normalized: strip + lower)
-        date: Date (will be trimmed)
-        time: Time (will be trimmed)
-    
-    Returns:
-        True if slot is available (no conflicts), False if busy.
+    Subject comparison is done in Python to correctly handle Russian text.
     """
     conn = get_connection()
     cursor = conn.cursor()
-    
-    # Normalize input parameters
+
     subject_normalized = subject.strip().lower()
     date_normalized = date.strip()
     time_normalized = time.strip()
-    
-    # Query with LOWER() and TRIM() for database-side normalization
+
     cursor.execute(
-        """SELECT COUNT(*) FROM lessons 
-           WHERE LOWER(TRIM(subject)) = ? 
-           AND TRIM(lesson_date) = ? 
-           AND TRIM(lesson_time) = ? 
-           AND status = 'planned'""",
-        (subject_normalized, date_normalized, time_normalized)
+        """
+        SELECT subject
+        FROM lessons
+        WHERE TRIM(lesson_date) = ?
+          AND TRIM(lesson_time) = ?
+          AND TRIM(status) = 'planned'
+        """,
+        (date_normalized, time_normalized)
     )
-    result = cursor.fetchone()
+
+    existing_lessons = cursor.fetchall()
     conn.close()
-    
-    # If count is 0, slot is available; if count > 0, slot is busy
-    return result[0] == 0
 
+    for lesson in existing_lessons:
+        existing_subject = lesson[0].strip().lower()
+        if existing_subject == subject_normalized:
+            return False
 
+    return True
 def create_lesson(student_id: int, subject: str, date: str, time: str, comment: str = None) -> int:
     """Create new lesson. Returns lesson ID."""
     conn = get_connection()

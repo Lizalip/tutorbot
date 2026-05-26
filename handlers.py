@@ -250,10 +250,10 @@ async def booking_time(message: types.Message, state: FSMContext):
         await message.answer(MESSAGES["ask_date"], reply_markup=get_cancel_keyboard())
         await state.set_state(UserStates.booking_date)
         return
-    
-    await state.update_data(time=time_text)
-    await message.answer(MESSAGES["ask_comment"], reply_markup=get_skip_cancel_keyboard())
-    await state.set_state(UserStates.booking_comment)
+    if is_slot_available(subject, date, time_text):
+        await state.update_data(time=time_text)
+        await message.answer(MESSAGES["ask_comment"], reply_markup=get_skip_cancel_keyboard())
+        await state.set_state(UserStates.booking_comment)
 
 
 @router.message(UserStates.booking_comment)
