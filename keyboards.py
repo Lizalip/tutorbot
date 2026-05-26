@@ -36,6 +36,7 @@ def get_tutor_menu_keyboard():
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BUTTONS["view_requests"])],
+            [KeyboardButton(text=BUTTONS["edit_subjects"])],
             [KeyboardButton(text="/help")]
         ],
         resize_keyboard=True
@@ -76,6 +77,43 @@ def get_booking_confirmation_keyboard():
         ]
     )
     return keyboard
+
+
+def get_subjects_inline_keyboard(subjects: list[str]):
+    """Inline keyboard for subject selection."""
+    buttons = []
+    for idx, subject in enumerate(subjects):
+        callback_data = f"subject_{idx}"
+        buttons.append([InlineKeyboardButton(text=subject, callback_data=callback_data)])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_tutors_inline_keyboard(tutors: list[tuple]):
+    """Inline keyboard for tutor selection."""
+    buttons = []
+    for tutor_id, tutor_name in tutors:
+        callback_data = f"tutor_{tutor_id}"
+        buttons.append([InlineKeyboardButton(text=tutor_name, callback_data=callback_data)])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_time_slots_inline_keyboard(slots: list[str]):
+    """Inline keyboard for time slot selection."""
+    buttons = []
+    # Create a 2-column layout for time slots
+    for i in range(0, len(slots), 2):
+        row = []
+        for j in range(2):
+            if i + j < len(slots):
+                slot = slots[i + j]
+                callback_data = f"time_{slot.replace(':', '_')}"
+                row.append(InlineKeyboardButton(text=slot, callback_data=callback_data))
+        if row:
+            buttons.append(row)
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_lessons_inline_keyboard(lessons: list, callback_prefix: str = "lesson"):
