@@ -3,8 +3,8 @@ Main bot entry point.
 """
 import asyncio
 import logging
-import os
 from os import getenv
+from pathlib import Path
 
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
@@ -14,8 +14,10 @@ from aiogram.client.default import DefaultBotProperties
 from database import init_db
 from handlers import router
 
-# Load environment variables
-load_dotenv()
+
+# Load environment variables from .env near main.py
+load_dotenv(Path(__file__).with_name(".env"))
+
 
 # Configure logging
 logging.basicConfig(
@@ -24,8 +26,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # Bot configuration
-TOKEN = getenv('TELEGRAM_BOT_TOKEN')
+TOKEN = getenv("TELEGRAM_BOT_TOKEN")
 
 if not TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN not found in .env file")
@@ -48,24 +51,28 @@ async def main():
     # Initialize database
     init_db()
     logger.info("✅ Database initialized")
-    
+
     # Create bot instance
-    bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
-    
+    bot = Bot(
+        token=TOKEN,
+        default=DefaultBotProperties(parse_mode="HTML")
+    )
+
     # Create dispatcher
     dp = Dispatcher()
     dp.include_router(router)
-    
-    # Set commands
-    await set_commands(bot)
-    logger.info("✅ Bot commands set")
-    
-    # Delete webhook and start polling
-    await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("🚀 Bot started polling...")
-    
+
     try:
+        # Set commands
+        await set_commands(bot)
+        logger.info("✅ Bot commands set")
+
+        # Delete webhook and start polling
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("🚀 Bot started polling...")
+
         await dp.start_polling(bot)
+
     finally:
         await bot.session.close()
 
